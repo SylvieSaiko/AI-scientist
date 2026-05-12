@@ -13,19 +13,34 @@ Given a dataset and a brief description, the system autonomously:
 
 ```
 Phase 1 — Ideation
-  └── idea_generator.py     Generate & rank research ideas via Claude; check novelty on PubMed
+  └── idea_generator.py           Generate & rank research ideas via Claude;
+                                  check novelty on PubMed
 
-Phase 2 — Experimentation (4 stages)
-  ├── stage1/analysis.py    Kaplan–Meier survival curves + univariate Cox regression
-  ├── stage2/analysis.py    LASSO-penalised Cox for variable selection
-  ├── stage3/analysis.py    Multivariable Cox PH + proportional hazards test + subgroup analysis
-  └── stage4/analysis.py    Temporal trends + era-stratified Cox + competing risks context
+Phase 2 — Experimentation (agentic tree search)
+  └── tree_search.py              4-stage search; N candidate nodes per stage;
+                                  best-scoring node seeds the next stage
 
-Phase 3 — Writeup
-  └── build_manuscript.py   Generate section text via Claude; assemble full Word document
+      Stage 1  Exploratory        Descriptive stats + univariate association screening
+      Stage 2  Variable selection Penalised regression (LASSO / elastic net / stepwise)
+      Stage 3  Primary analysis   Multivariable model + assumption checks + subgroups
+      Stage 4  Sensitivity        Robustness checks, temporal trends, alternative specs
+
+  └── experiment_node.py          Generates analysis code via Claude, executes it,
+                                  scores the output, auto-debugs on failure
+
+Phase 3 — Write-up
+  └── manuscript_writer.py        Generates manuscript sections via Claude;
+                                  saves Markdown + figures
+
+Phase 4 — Automated peer review
+  └── automated_reviewer.py       Ensemble of N independent LLM reviews +
+                                  meta-review; returns accept/revise/reject
 ```
 
-Each stage saves `metrics.json`, `results.txt`, and figures to its node directory.
+Each node saves `metrics.json`, `results.txt`, and figures to its own directory.
+The analysis method is determined by the study idea — survival, logistic, or linear
+regression — not hardcoded. Example templates for survival analysis are in
+`phase2_experimentation/nodes/stage1–4/`.
 
 ---
 

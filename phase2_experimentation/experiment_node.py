@@ -4,7 +4,7 @@ Each node is one statistical analysis. The agent generates Python code,
 executes it in a subprocess, captures metrics + figures, and marks status.
 """
 
-import os, sys, json, traceback, uuid, subprocess
+import os, sys, json, math, traceback, uuid, subprocess
 
 WORK_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, WORK_DIR)
@@ -17,26 +17,32 @@ You are an expert biostatistician. Produce a self-contained Python analysis scri
 DATASET: CSV at: {csv_path}
 STUDY: {title}
 HYPOTHESIS: {hypothesis}
-ENDPOINT: event column="{endpoint}", time column="{time_col}" (days from baseline)
-METHOD: {method}
+STAGE GOAL: {stage_goal}
+ANALYTICAL APPROACH: {method}
 KEY PREDICTORS: {predictors}
 TIME HORIZON: {horizon}
 OUTPUT DIRECTORY: {node_dir}
 
+PRIOR STAGE FINDINGS (use to inform this analysis):
+{parent_context}
+
 The script must:
 1. Load the CSV with pd.read_csv(path, low_memory=False)
 2. Coerce relevant columns to numeric: pd.to_numeric(df[col], errors='coerce')
-3. Drop rows missing the endpoint or time column; clip time to 0.5 minimum
-4. Run the specified statistical method (lifelines for survival, statsmodels for regression)
+3. Drop rows with missing outcome or time data; clip time to 0.5 minimum
+4. Implement the ANALYTICAL APPROACH above (lifelines for survival, statsmodels for regression/logistic)
 5. Save to {node_dir}:
-   - metrics.json  — keys: n, events, c_index (or auc), main_hr, hr_ci_low, hr_ci_high, p_value
+   - metrics.json  — keys: n, events (or n_cases), c_index (or auc or r_squared), hr (or coef), hr_lo, hr_hi, p_value
    - figures/      — at least one plot at 150 dpi
    - results.txt   — plain text summary
 6. Print STATUS: SUCCESS on the last line, or STATUS: FAILED if an exception is caught
 
-Notes:
+Technical notes:
 - matplotlib non-interactive backend: import matplotlib; matplotlib.use('Agg')
-- Binary columns coded 1/2 (not 0/1) should be recoded: df[col] = df[col] - 1
+- Binary columns coded 1/2 (not 0/1): df[col] = df[col] - 1
+- Survival outcomes: use lifelines (CoxPHFitter, KaplanMeierFitter)
+- Binary outcomes: use statsmodels sm.Logit or sklearn LogisticRegression
+- Continuous outcomes: use statsmodels sm.OLS
 """
 
 DEBUGGER_PROMPT = """IMPORTANT: Respond with ONLY a corrected Python code block. Do NOT use any file tools.
@@ -89,18 +95,58 @@ class ExperimentNode:
         # Fall back to first endpoint
         return next(iter(ENDPOINTS.values()))
 
-    def generate_script(self) -> str:
+    def score(self) -> float:
+        """Biomedical quality score derived from metrics.json (0–8 scale)."""
+        if self.status != "non-buggy" or not self.metrics:
+            return 0.0
+        m = self.metrics
+        s = 0.0
+
+        # Discrimination: C-index or AUC (max 3.0)
+        c = m.get("c_index", m.get("auc", 0.5))
+        s += max(0.0, (float(c) - 0.5) / 0.5 * 3.0)
+
+        # Primary effect significance (max 2.0)
+        p = float(m.get("p_value", 1.0))
+        if p < 0.001:   s += 2.0
+        elif p < 0.01:  s += 1.5
+        elif p < 0.05:  s += 1.0
+        elif p < 0.10:  s += 0.5
+
+        # Sample size (max 1.5)
+        n = int(m.get("n", 0))
+        if n > 0:
+            s += min(1.0, math.log10(n) / 4)
+        if int(m.get("events", m.get("n_cases", 0))) >= 100:
+            s += 0.5
+
+        # Analytical richness (max 1.0)
+        if m.get("subgroups"):       s += 0.5
+        if m.get("extended_followup"): s += 0.25
+        if "ph_violations" in m:     s += 0.25
+
+        # Penalise PH violations (up to -1.0)
+        violations = m.get("ph_violations", [])
+        s -= min(1.0, len(violations) * 0.25)
+
+        return round(max(0.0, s), 3)
+
+    def generate_script(self, stage_goal: str = "", parent_metrics: dict = None) -> str:
         endpoint, time_col = self._resolve_endpoint()
+        parent_context = (json.dumps(parent_metrics, indent=2)
+                          if parent_metrics else "None — first stage.")
+        if not stage_goal:
+            stage_goal = f"Stage {self.stage} analysis"
         prompt = NODE_PROMPT.format(
             csv_path=self._csv_path(),
             title=self.idea["title"],
             hypothesis=self.idea["hypothesis"],
-            endpoint=endpoint,
-            time_col=time_col,
+            stage_goal=stage_goal,
             method=self.idea["statistical_method"],
             predictors=", ".join(self.idea.get("key_predictors", [])),
             horizon=self.idea.get("time_horizon", "primary"),
             node_dir=self.node_dir,
+            parent_context=parent_context,
         )
         script = claude_call(prompt, max_tokens=4096)
         if script.startswith("```"):
