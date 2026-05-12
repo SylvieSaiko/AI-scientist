@@ -1,0 +1,37 @@
+# Dataset files — never commit patient-level data
+data/
+*.csv
+*.sav
+*.xpt
+*.dta
+*.xlsx
+*.xls
+
+# Generated outputs
+outputs/
+phase3_writeup/*.docx
+phase3_writeup/*.md
+phase3_writeup/figures/
+
+# Per-node results (contain run-specific stats and figures)
+# Note: stage1/stage2/stage3/stage4 template scripts are tracked; only
+# exclude output artifacts from auto-generated UUID-named run nodes.
+phase2_experimentation/nodes/*/metrics.json
+phase2_experimentation/nodes/*/results.txt
+phase2_experimentation/nodes/*/run.log
+phase2_experimentation/nodes/*/figures/
+
+# Idea archive (may contain dataset-specific content)
+phase1_ideation/idea_archive.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db

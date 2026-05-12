@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Rscript *)",
+      "Bash(python3 -c \"import anthropic, pandas, lifelines, statsmodels, sklearn, matplotlib, seaborn; print\\('All deps OK'\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(claude *)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "Bash(echo \"Exit: $?\")"
+    ]
+  }
+}
